@@ -1,0 +1,197 @@
+<link rel="import" href="../polymer/polymer.html" />
+
+<!-- /build -->
+<polymer-element name="mqtt-client" >
+    <template></template>
+    <script src="mqttws31.js"></script>
+    <script>
+        Polymer({
+            is: 'mqtt-client',
+            properties: {
+                autoConnect: {
+                    type: Boolean,
+                    value: false
+                },
+                reconnect: {
+                    type: Boolean,
+                    value: true
+                },
+                clientId: {
+                    value: function () {
+                        return function () {
+                            return Math.floor((1 + Math.random()) * 4294967296).toString(16).substring(1);
+                        }();
+                    }
+                },
+                connected: {
+                    type: Boolean,
+                    value: false
+                },
+                host: {
+                    type: String,
+                },
+                port: {
+                    type: Number,
+                    value: 0
+                },
+                path: {
+                    type: String,
+                    value: "",
+                    notify: true
+                },          
+                username: {
+                    type: String,
+                    value: ''
+                },
+                password: {
+                    type: String,
+                    value: ''
+                },
+                ssl: {
+                    type: Boolean,
+                    value: false
+                },
+                timeout: {
+                    type: Number,
+                    value: 3000,                    
+                },
+                subscriptions: {
+                    type: Array,
+                    observer: '_subscriptionsChanged'
+                }
+            },
+            _onConnected(reconnect, uri){
+                self._triggerEvent('connected')
+                self.connected = true;             
+                self.subscriptions.forEach(function(sub) {
+                   self._subscribe(sub);
+                });
+            },
+            _onConnectFailed(err){
+                self._triggerEvent('connectfailed', err)
+
+                self.connected = false;
+                self._tryReconnect();
+            },
+            _onSubscribed(ctx){
+                self._triggerEvent('subscribed', ctx)
+            },
+            _onSubscribeFailed(ctx, errCode, errMsg){
+                self._triggerEvent('subscribefailed', errMsg)                
+            },
+            _onMessageArrived(msg){
+                self._triggerEvent('messagearrived', msg)
+            },
+            _onMessageDelivered(msg){
+                self._triggerEvent('messagedelivered', msg)
+            },
+            _onConnectionLost(error, msg){
+                self._triggerEvent('connectionlost', msg)
+                this.connected = false;
+                _tryReconnect();
+            },
+            _tryReconnect(){
+                if(this.reConnect){
+                    this.connect();
+                }
+            },
+            _subscriptionsChanged(subscriptions){
+                newSubscriptions = this._getSubscriptionChange(subscriptions, this.internalSubscriptions);
+                oldSubscriptions = this._getSubscriptionChange(this.internalSubscriptions, subscriptions);
+
+                self = this;
+                newSubscriptions.forEach(function(sub) {
+                    self._subscribe(sub);
+                });
+
+                oldSubscriptions.forEach(function(sub) {
+                    self._unsubscribe(sub);
+                });
+                
+                this.internalSubscriptions = subscriptions;
+            },
+            _subscribe(sub){
+                if(!self.connected){
+                    return;
+                }
+
+                self.client.subscribe(sub.topic, {
+                    qos: sub.qos,
+                    invocationContext: self,
+                    onSuccess: self._onSubscribed,
+                    onFailure: self._onSubscribeFailed
+                });
+            },
+            _unsubscribe(sub){ 
+                if(!self.connected){
+                    return;
+                }
+
+                this.client.unsubscribe(sub.topic);
+            },
+            _getSubscriptionChange(newSubs, oldSubs){
+                change = [];
+                
+                if(typeof newSubs == 'undefined')
+                    newSubs = [];
+
+                if(typeof oldSubs == 'undefined')
+                    oldSubs = [];                
+
+                newSubs.forEach(function(sub) {
+                    found = false;
+                    oldSubs.forEach(function(isub) {
+                        if(sub.topic == isub.topic){
+                            found = true;
+                        }
+                    });
+
+                    if(!found){
+                        change.push(sub);
+                    }
+                });
+
+                return change;
+            },
+            _triggerEvent(eventName, data){
+                this.dispatchEvent(new CustomEvent(eventName, { detail: data, bubbles: true }));
+            },
+            connect(){
+                if (this.connected)
+                    return;
+
+                if (this.host !== '' && this.port !== 0){
+                    this.client = new Paho.MQTT.Client(this.host, parseInt(this.port), this.path, this.clientId);                    
+                    this.client.onConnectionLost = this._onConnectionLost;
+                    this.client.onMessageArrived = this._onMessageArrived;
+
+                    this.client.connect({
+                        timeout: this.timeout,
+                        useSSL: this.ssl,
+                        userName: this.username,
+                        password: this.password,            
+                        mqttVersion: 4,
+                        onSuccess: this._onConnected,
+                        onFailure: this._onConnectFailed
+                    });
+                }
+            },
+            disconnect(){
+                this.client.disconnect();
+            },
+            publish(topic, payload, qos, retained){
+                if (!this.connected)
+                    return;
+
+                this.client.publish(topic, payload, qos, retained);
+            },            
+            ready(){   
+                self = this    
+                this.internalSubscriptions = [];         
+                if (this.autoConnect) {
+                    this.connect();
+                }
+            }
+        });
+    </script>
+</polymer-element>
