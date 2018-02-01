@@ -87,8 +87,8 @@
             },
             _onConnectionLost(error, msg){
                 self._triggerEvent('connectionlost', msg)
-                this.connected = false;
-                _tryReconnect();
+                self.connected = false;
+                self._tryReconnect();
             },
             _tryReconnect(){
                 if(this.reConnect){
